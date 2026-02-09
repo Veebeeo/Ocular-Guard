@@ -1,0 +1,19 @@
+# .gitignore
+__pycache__/
+*.py[cod]
+*.so
+
+# Virtual Environment
+.venv/
+venv/
+env/
+
+# Environment Variables 
+.env
+
+# IDE settings
+.vscode/
+.idea/
+
+# Database data 
+postgres_data/

@@ -19,6 +19,7 @@ opt_einsum==3.4.0
 packaging==26.0
 pandas==3.0.0
 pillow==12.1.1
+plyer==2.1.0
 protobuf==4.25.8
 psycopg2-binary==2.9.11
 pycparser==3.0

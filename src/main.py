@@ -19,7 +19,7 @@ class OcularGuardSystem:
         
         # 20-20-20 Rule Timer
         self.last_break_time = time.time()
-        self.BREAK_INTERVAL = 20 * 60 
+        self.BREAK_INTERVAL = 30
         
         
         self.smart_check_start = time.time()
@@ -41,7 +41,7 @@ class OcularGuardSystem:
         self.db.commit()
         self.db.refresh(new_session)
         self.current_session = new_session
-        print(f"✅ Session Started! ID: {self.current_session.id}")
+        print(f"Session Started! ID: {self.current_session.id}")
 
     def log_minute_data(self, bpm, avg_ear):
         if not self.current_session: return

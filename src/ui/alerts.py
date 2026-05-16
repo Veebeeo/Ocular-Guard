@@ -1,37 +1,30 @@
-import threading
-from plyer import notification
+import multiprocessing
+from src.ui.overlay import show_overlay_process
 
 class NotificationManager:
     @staticmethod
-    def send_alert(title, message):
-        """
-        Sends a desktop notification in a separate thread 
-        so it doesn't freeze the camera feed.
-        """
-        def _show():
-            try:
-                notification.notify(
-                    title=title,
-                    message=message,
-                    app_name="OcularGuard",
-                    timeout=15  
-                )
-            except Exception as e:
-                print(f"Error sending notification: {e}")
-
-        
-        threading.Thread(target=_show, daemon=True).start()
+    def _launch_popup(title, message, is_warning):
+        """Helper to spawn the process."""
+        p = multiprocessing.Process(
+            target=show_overlay_process, 
+            args=(title, message, is_warning)
+        )
+        p.start()
+        # We don't join() because we want the main app to keep running
+        # The popup process will die when the user clicks "OK"
 
     @staticmethod
     def alert_20_20_20():
-        NotificationManager.send_alert(
+        NotificationManager._launch_popup(
             "20-20-20 Rule", 
-            "20 minutes passed! Look 20 feet away for 20 seconds."
+            "Time to look away!\n\nLook 20 feet away for 20 seconds to reset your vision.",
+            is_warning=False
         )
 
     @staticmethod
     def alert_dry_eyes(current_bpm):
-        NotificationManager.send_alert(
-            "Blink More!", 
-            f"Your blink rate is low ({current_bpm} BPM). Blink now to hydrate your eyes."
+        NotificationManager._launch_popup(
+            "DRY EYE ALERT", 
+            f"Your blink rate is critically low ({current_bpm} BPM).\n\nSTOP and blink intentionally 5 times now.",
+            is_warning=True
         )

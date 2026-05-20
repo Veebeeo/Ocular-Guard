@@ -17,3 +17,6 @@ env/
 
 # Database data 
 postgres_data/
+
+dist/
+build/

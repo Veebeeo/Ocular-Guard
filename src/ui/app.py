@@ -71,7 +71,7 @@ class OcularGuardApp:
 
         self.minute_start_time = 0
         self.last_break_time = 0
-        self.BREAK_INTERVAL = 20 * 60
+        self.BREAK_INTERVAL = 30  # seconds — overwritten at start_monitoring from the UI input
 
         self.smart_check_start = 0
         self.smart_blinks = 0
@@ -224,8 +224,25 @@ class OcularGuardApp:
                                            style="Toggle.TCheckbutton")
         self.chk_202020.pack(anchor="w", padx=20, pady=(4, 4))
 
-        ttk.Label(toggles_card, text="Every 20 minutes, reminds you to look 20 feet away "
-                  "for 20 seconds", style="CardBody.TLabel").pack(anchor="w", padx=44, pady=(0, 16))
+        ttk.Label(toggles_card, text="Every N minutes, reminds you to look 20 feet away "
+                  "for 20 seconds", style="CardBody.TLabel").pack(anchor="w", padx=44, pady=(0, 6))
+
+        interval_row = tk.Frame(toggles_card, bg=BG_CARD)
+        interval_row.pack(anchor="w", padx=44, pady=(0, 16))
+
+        tk.Label(interval_row, text="Break interval:", bg=BG_CARD, fg=TEXT_SECONDARY,
+                 font=("Segoe UI", 10)).pack(side=tk.LEFT, padx=(0, 8))
+
+        self.break_interval_var = tk.StringVar(value="20")
+        interval_entry = tk.Entry(interval_row, textvariable=self.break_interval_var,
+                                  width=5, bg=BG_CARD_ALT, fg=TEXT_PRIMARY,
+                                  insertbackground=ACCENT, font=("Consolas", 11),
+                                  relief=tk.FLAT, bd=4,
+                                  highlightthickness=1, highlightcolor=ACCENT,
+                                  highlightbackground=BORDER)
+        interval_entry.pack(side=tk.LEFT, padx=(0, 6))
+        tk.Label(interval_row, text="minutes", bg=BG_CARD, fg=TEXT_MUTED,
+                 font=("Segoe UI", 10)).pack(side=tk.LEFT)
 
         # ── Session Controls Card ────────────────────────────────────────
         session_card = self._make_card(self.page_container, "Session")
@@ -592,6 +609,15 @@ class OcularGuardApp:
         self.live_ear_history.clear()
         self.live_time_labels.clear()
         self.session_start_wall = time.time()
+
+        # Read break interval from UI (fallback to 20 minutes if invalid)
+        try:
+            minutes = float(self.break_interval_var.get())
+            if minutes <= 0:
+                raise ValueError
+            self.BREAK_INTERVAL = minutes * 60
+        except (ValueError, AttributeError):
+            self.BREAK_INTERVAL = 20 * 60
 
         # Create DB session
         new_session = WorkSession()

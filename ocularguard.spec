@@ -1,5 +1,8 @@
 # ocularguard.spec
-# Build with:  pyinstaller ocularguard.spec
+# Build:  pyinstaller ocularguard.spec --clean
+#
+# Step 1 — temporarily set console=True to see crash tracebacks.
+# Step 2 — once working, flip console=False for the release build.
 
 import os
 import sys
@@ -7,14 +10,24 @@ import mediapipe
 
 mediapipe_path = os.path.dirname(mediapipe.__file__)
 
+# mediapipe 0.10.x stores models in modules/ AND in the package root
+# We bundle the entire mediapipe package folder to be safe.
+mediapipe_datas = [
+    (os.path.join(mediapipe_path, 'modules'),  'mediapipe/modules'),
+    (os.path.join(mediapipe_path, 'python'),   'mediapipe/python'),
+]
+
+# Only add tasks/ if it exists (mediapipe >= 0.10.3)
+tasks_path = os.path.join(mediapipe_path, 'tasks')
+if os.path.isdir(tasks_path):
+    mediapipe_datas.append((tasks_path, 'mediapipe/tasks'))
+
 a = Analysis(
     ['run_ocularguard.py'],
     pathex=['.'],
     binaries=[],
-    datas=[
-        # MediaPipe face-mesh models (essential — without these the tracker silently fails)
-        (os.path.join(mediapipe_path, 'modules'), 'mediapipe/modules'),
-        # UI assets (overlay icons etc.) — glob handles missing files gracefully
+    datas=mediapipe_datas + [
+        # UI assets (icons, etc.) — safe if folder is empty
         ('src/ui', 'src/ui'),
     ],
     hiddenimports=[
@@ -23,29 +36,40 @@ a = Analysis(
         'mediapipe.python',
         'mediapipe.python.solutions',
         'mediapipe.python.solutions.face_mesh',
+        'mediapipe.python.solutions.drawing_utils',
         # OpenCV
         'cv2',
-        # SQLAlchemy SQLite dialect (stdlib — no extra package needed)
+        # SQLAlchemy SQLite
         'sqlalchemy.dialects.sqlite',
-        # Notifications
-        'plyer.platforms.win.notification',
-        # PyQt6 overlay
-        'PyQt6',
-        'PyQt6.QtWidgets',
-        'PyQt6.QtCore',
-        'PyQt6.QtGui',
-        # Tkinter (usually auto-detected but listed for safety)
+        'sqlalchemy.dialects.sqlite.pysqlite',
+        # Tkinter (usually auto-detected; listed for safety)
         'tkinter',
         'tkinter.ttk',
         'tkinter.messagebox',
-        'tkinter.simpledialog',
         # Matplotlib TkAgg backend
+        'matplotlib',
         'matplotlib.backends.backend_tkagg',
+        'matplotlib.backends._backend_tk',
+        # numpy / pandas internals that PyInstaller sometimes misses
+        'numpy.core._dtype_ctypes',
+        'pandas._libs.tslibs.np_datetime',
     ],
     hookspath=[],
     runtime_hooks=[],
-    # Exclude heavy packages we don't need in the bundle
-    excludes=['psycopg2', 'python-dotenv', 'jupyter', 'IPython'],
+    excludes=[
+        # Removed dependencies
+        'psycopg2',
+        'dotenv',
+        # PyQt6 no longer used for notifications
+        'PyQt6',
+        # Avoid bloat
+        'jupyter',
+        'IPython',
+        'PyQt5',
+        'PySide2',
+        'PySide6',
+        'wx',
+    ],
     noarchive=False,
 )
 
@@ -61,8 +85,8 @@ exe = EXE(
     bootloader_ignore_signals=False,
     strip=False,
     upx=True,
-    # console=True is useful during development to see crash tracebacks.
-    # Flip to False for the final release build.
+    # ── CHANGE THIS TO False FOR RELEASE BUILD ───────────────────────────
+    # Keep True during testing so crash tracebacks appear in a console window
     console=False,
     icon='src/ui/icon.ico' if os.path.exists('src/ui/icon.ico') else None,
 )

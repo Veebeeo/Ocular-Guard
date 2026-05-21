@@ -809,7 +809,9 @@ class OcularGuardApp:
 
 
 def launch():
+    from src.ui.overlay import set_root
     root = tk.Tk()
+    set_root(root)          # give overlay.py the root so popups can use root.after()
     app = OcularGuardApp(root)
     root.mainloop()
 

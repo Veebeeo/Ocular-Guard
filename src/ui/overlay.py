@@ -1,158 +1,164 @@
-import sys
-import os
-from PyQt6.QtWidgets import (QApplication, QDialog, QVBoxLayout, QHBoxLayout,
-                              QLabel, QPushButton, QFrame)
-from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QFont, QCursor, QPixmap
+"""
+overlay.py — Notification popup for OcularGuard.
 
 
-class OverlayAlert(QDialog):
-    def __init__(self, title, message, is_warning=False):
-        super().__init__()
 
-        self.setWindowFlags(
-            Qt.WindowType.FramelessWindowHint |
-            Qt.WindowType.WindowStaysOnTopHint |
-            Qt.WindowType.Tool
-        )
-        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+WHY: PyQt6 dialogs MUST be created and shown on the main thread.
+When called from a background camera thread (even via threading.Thread),
+PyQt6 performs an immediate abort in a frozen PyInstaller exe because
+Qt detects the GUI call is not on the main thread.
 
-        base_path = os.path.dirname(__file__)
-        if is_warning:
-            self.grad_start   = "#7f1d1d"
-            self.grad_end     = "#450a0a"
-            self.border_color = "#991b1b"
-            self.icon_path    = os.path.join(base_path, "redness.png")
-        else:
-            self.grad_start   = "#334155"
-            self.grad_end     = "#1e293b"
-            self.border_color = "#475569"
-            self.icon_path    = os.path.join(base_path, "hourglass.png")
+tkinter Toplevels are safe to *schedule* from any thread via
+root.after(0, callback) — the callback executes on the main thread
+in the next event-loop tick. The app.py camera loop already uses
+root.after() for this pattern, so we follow the same approach here.
 
-        layout = QVBoxLayout()
-        layout.setContentsMargins(0, 0, 0, 0)
-        self.setLayout(layout)
+The _root reference is set once by app.py when the window is created.
+"""
 
-        self.card = QFrame()
-        self.card.setStyleSheet(f"""
-            QFrame {{
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
-                    stop:0 {self.grad_start}, stop:1 {self.grad_end});
-                border: 1px solid {self.border_color};
-                border-radius: 12px;
-            }}
-        """)
+import tkinter as tk
 
-        card_layout = QVBoxLayout(self.card)
-        card_layout.setContentsMargins(16, 16, 16, 16)
-        card_layout.setSpacing(12)
-        layout.addWidget(self.card)
+# Module-level reference to the main Tk root — set by app.py at startup.
+_root = None
 
-        # ── Header row ───────────────────────────────────────────────────
-        header_layout = QHBoxLayout()
-        header_layout.setSpacing(10)
 
-        self.icon_label = QLabel()
-        self.icon_label.setFixedSize(24, 24)
-        self.icon_label.setStyleSheet("background: transparent; border: none;")
+def set_root(root):
+    """Called once from app.py after Tk() is created."""
+    global _root
+    _root = root
 
-        if os.path.exists(self.icon_path):
-            pixmap = QPixmap(self.icon_path)
-            scaled = pixmap.scaled(24, 24,
-                                   Qt.AspectRatioMode.KeepAspectRatio,
-                                   Qt.TransformationMode.SmoothTransformation)
-            self.icon_label.setPixmap(scaled)
-        else:
-            self.icon_label.setText("⚠️" if is_warning else "🕒")
-            self.icon_label.setFont(QFont("Segoe UI Emoji", 14))
 
-        header_layout.addWidget(self.icon_label)
+# Colour tokens (match app.py palette)
+_WARN_BG     = "#2D0A0A"
+_WARN_BORDER = "#991b1b"
+_WARN_ACCENT = "#FF6B6B"
 
-        self.title_label = QLabel(title)
-        self.title_label.setFont(QFont("Segoe UI", 11, QFont.Weight.DemiBold))
-        self.title_label.setStyleSheet(
-            "color: rgba(255,255,255,0.95); background: transparent; border: none;"
-        )
-        header_layout.addWidget(self.title_label)
-        header_layout.addStretch()
+_INFO_BG     = "#0D1B2A"
+_INFO_BORDER = "#475569"
+_INFO_ACCENT = "#00D4AA"
 
-        self.close_btn = QPushButton("✕")
-        self.close_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
-        self.close_btn.setFixedSize(20, 20)
-        self.close_btn.clicked.connect(self.accept)
-        self.close_btn.setStyleSheet("""
-            QPushButton { color: rgba(255,255,255,0.5); background: transparent; border: none; font-weight: bold; }
-            QPushButton:hover { color: white; }
-        """)
-        header_layout.addWidget(self.close_btn)
-        card_layout.addLayout(header_layout)
+_TEXT = "#E8ECF1"
 
-        # ── Message ──────────────────────────────────────────────────────
-        self.message_label = QLabel(message)
-        self.message_label.setWordWrap(True)
-        self.message_label.setFont(QFont("Segoe UI", 10))
-        self.message_label.setStyleSheet(
-            "color: rgba(255,255,255,0.8); background: transparent; border: none;"
-        )
-        card_layout.addWidget(self.message_label)
 
-        # ── OK button ────────────────────────────────────────────────────
-        btn_layout = QHBoxLayout()
-        btn_layout.addStretch()
+class _OverlayPopup:
+    """
+    Frameless, always-on-top toast notification.
+    Positioned in the bottom-right corner of the screen.
+    Auto-dismisses after timeout_ms milliseconds.
+    """
 
-        self.action_btn = QPushButton("OK")
-        self.action_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
-        self.action_btn.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
-        self.action_btn.setStyleSheet("""
-            QPushButton {
-                background-color: rgba(255,255,255,0.1);
-                color: white;
-                border: 1px solid rgba(255,255,255,0.1);
-                border-radius: 6px;
-                padding: 6px 16px;
-            }
-            QPushButton:hover { background-color: rgba(255,255,255,0.2); }
-        """)
-        self.action_btn.clicked.connect(self.accept)
-        btn_layout.addWidget(self.action_btn)
-        card_layout.addLayout(btn_layout)
+    def __init__(self, root, title, message, is_warning, timeout_ms=8000):
+        self.root = root
 
-        self.resize(380, 140)
-        self._move_to_bottom_right()
+        bg     = _WARN_BG     if is_warning else _INFO_BG
+        border = _WARN_BORDER if is_warning else _INFO_BORDER
+        accent = _WARN_ACCENT if is_warning else _INFO_ACCENT
+        icon   = "⚠" if is_warning else "🕒"
 
-    def _move_to_bottom_right(self):
-        screen = QApplication.primaryScreen().availableGeometry()
+        # Window setup
+        self.win = tk.Toplevel(root)
+        self.win.overrideredirect(True)       # frameless
+        self.win.attributes("-topmost", True) # always on top
+        self.win.configure(bg=border)         # 1-px border via bg colour
+
+        # Outer border frame
+        outer = tk.Frame(self.win, bg=border, padx=1, pady=1)
+        outer.pack(fill=tk.BOTH, expand=True)
+
+        inner = tk.Frame(outer, bg=bg, padx=16, pady=12)
+        inner.pack(fill=tk.BOTH, expand=True)
+
+        # Header row
+        header = tk.Frame(inner, bg=bg)
+        header.pack(fill=tk.X, pady=(0, 6))
+
+        tk.Label(header, text=icon, bg=bg, fg=accent,
+                 font=("Segoe UI Emoji", 14)).pack(side=tk.LEFT, padx=(0, 8))
+
+        tk.Label(header, text=title, bg=bg, fg=accent,
+                 font=("Segoe UI", 11, "bold")).pack(side=tk.LEFT)
+
+        tk.Button(header, text="✕", bg=bg, fg="#4A5568",
+                  activebackground=bg, activeforeground=_TEXT,
+                  font=("Segoe UI", 10, "bold"),
+                  bd=0, cursor="hand2",
+                  command=self._dismiss).pack(side=tk.RIGHT)
+
+        # Message
+        tk.Label(inner, text=message, bg=bg, fg=_TEXT,
+                 font=("Segoe UI", 10), justify=tk.LEFT,
+                 wraplength=320).pack(anchor="w", pady=(0, 10))
+
+        # OK button
+        btn_row = tk.Frame(inner, bg=bg)
+        btn_row.pack(fill=tk.X)
+
+        tk.Button(btn_row, text="OK", bg="#1E2633", fg=_TEXT,
+                  activebackground="#2A3444", activeforeground=_TEXT,
+                  font=("Segoe UI", 9, "bold"),
+                  bd=0, padx=20, pady=5, cursor="hand2",
+                  command=self._dismiss,
+                  highlightthickness=1,
+                  highlightbackground=border,
+                  highlightcolor=accent).pack(side=tk.RIGHT)
+
+        # Position bottom-right
+        self.win.update_idletasks()
+        sw = self.win.winfo_screenwidth()
+        sh = self.win.winfo_screenheight()
+        w  = self.win.winfo_reqwidth()
+        h  = self.win.winfo_reqheight()
         margin = 24
-        self.move(screen.width() - self.width() - margin,
-                  screen.height() - self.height() - margin)
+        self.win.geometry(f"{w}x{h}+{sw - w - margin}+{sh - h - margin - 48}")
+
+        # Auto-dismiss
+        self._after_id = self.win.after(timeout_ms, self._dismiss)
+
+    def _dismiss(self):
+        try:
+            self.win.after_cancel(self._after_id)
+        except Exception:
+            pass
+        try:
+            self.win.destroy()
+        except Exception:
+            pass
 
 
-def show_overlay_process(title: str, message: str, is_warning: bool):
+def show_overlay(title, message, is_warning):
     """
-    Show an OverlayAlert popup.
-
-    Safe to call from a background thread.  Creates a QApplication only if
-    one doesn't already exist on this thread (each daemon thread gets its own).
+    Schedule a popup on the main tkinter thread.
+    Safe to call from any background thread.
     """
-    QApplication.setHighDpiScaleFactorRoundingPolicy(
-        Qt.HighDpiScaleFactorRoundingPolicy.PassThrough
-    )
+    if _root is None:
+        print(f"[OcularGuard] Popup skipped (no root): {title}")
+        return
 
-    app = QApplication.instance()
-    created = False
-    if app is None:
-        app = QApplication(sys.argv)
-        created = True
+    def _create():
+        try:
+            _OverlayPopup(_root, title, message, is_warning)
+        except Exception as e:
+            print(f"[OcularGuard] Popup error: {e}")
 
-    alert = OverlayAlert(title, message, is_warning)
-    alert.show()
-    app.exec()
+    # after(0, ...) posts to the main event loop — safe from any thread
+    _root.after(0, _create)
 
-    # If we created the QApplication here, clean it up so the next call
-    # on this thread can create a fresh one without conflicts.
-    if created:
-        app.quit()
+
+def show_overlay_process(title, message, is_warning):
+    """Backwards-compatible name used by alerts.py."""
+    show_overlay(title, message, is_warning)
 
 
 if __name__ == "__main__":
-    show_overlay_process("DRY EYE ALERT", "Test alert.", True)
+    root = tk.Tk()
+    root.title("Overlay Test")
+    set_root(root)
+    root.after(300,  lambda: show_overlay(
+        "DRY EYE ALERT",
+        "Your blink rate is critically low (2 BPM).\nSTOP and blink 5 times now.",
+        is_warning=True))
+    root.after(1200, lambda: show_overlay(
+        "20-20-20 Rule",
+        "Time to look away!\n\nLook 20 feet away for 20 seconds.",
+        is_warning=False))
+    root.mainloop()
